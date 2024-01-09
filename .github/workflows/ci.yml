@@ -11,23 +11,45 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [16.x, 18.x, 20.x]
+        node-version: [18.x, 20.x]
         os: [ubuntu-latest, windows-latest, macos-latest]
-        exclude:  # TODO: Remove the excludes and get the tests to pass
-          - os: ubuntu-latest
-          - os: macos-latest
-            node-version: 16.x
-          - os: macos-latest
-            node-version: 18.x
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
       - if: startsWith(matrix.os, 'ubuntu')
-        run: sudo apt-get install -y build-essential libglew-dev libglu1-mesa-dev libxi-dev pkg-config
-      - run: npm ci
+        name: Install system dependencies (ubuntu)
+        run: sudo apt-get install -y build-essential libglew-dev libglu1-mesa-dev libxi-dev pkg-config xutils-dev libxxf86vm-dev x11proto-xf86vidmode-dev mesa-utils xvfb libgl1-mesa-dri libglapi-mesa libosmesa6 musl-dev libgl1-mesa-dev
+      - if: startsWith(matrix.os, 'macos')
+        name: Install system dependencies (osx)
+        run: |
+          brew install pango jpeg librsvg pixman
+      - name: npm ci (clang)
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          CC="$(brew --prefix llvm@15)/bin/clang" \
+          CXX="$(brew --prefix llvm@15)/bin/clang" \
+          npm ci
+      - name: npm ci (gcc 12)
+        run: npm ci
+        if: "${{ !startsWith(matrix.os, 'macos') }}"
+        env:
+          CC: gcc-12
+          CXX: g++-12
       - run: npm run build --if-present
-      - run: npm test
+      - name: glxinfo
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          which glxinfo &&
+          xvfb-run --auto-servernum --server-num=1 -s "-ac -screen 0 1280x1024x24" $(which glxinfo)
+      - name: npm test (ubuntu)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          which npm &&
+          xvfb-run --auto-servernum --server-num=1 -s "-ac -screen 0 1280x1024x24" $(which npm) test
+      - name: npm test (osx / windows)
+        if: "${{ !startsWith(matrix.os, 'ubuntu') }}"
+        run: npm test
